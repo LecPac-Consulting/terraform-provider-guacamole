@@ -1,3 +1,6 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package tfexec
 
 import (
@@ -11,6 +14,7 @@ import (
 	"io/ioutil"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 
 	"github.com/hashicorp/terraform-exec/internal/version"
@@ -166,7 +170,7 @@ func (tf *Terraform) buildEnv(mergeEnv map[string]string) []string {
 	env[automationEnvVar] = "1"
 
 	// force usage of workspace methods for switching
-	env[workspaceEnvVar] = ""
+	delete(env, workspaceEnvVar)
 
 	if tf.disablePluginTLS {
 		env[disablePluginTLSEnvVar] = "1"
@@ -184,6 +188,14 @@ func (tf *Terraform) buildTerraformCmd(ctx context.Context, mergeEnv map[string]
 
 	cmd.Env = tf.buildEnv(mergeEnv)
 	cmd.Dir = tf.workingDir
+	if runtime.GOOS != "windows" {
+		// Windows does not support SIGINT so we cannot do graceful cancellation
+		// see https://pkg.go.dev/os#Signal (os.Interrupt)
+		cmd.Cancel = func() error {
+			return cmd.Process.Signal(os.Interrupt)
+		}
+		cmd.WaitDelay = tf.waitDelay
+	}
 
 	tf.logger.Printf("[INFO] running Terraform command: %s", cmd.String())
 
