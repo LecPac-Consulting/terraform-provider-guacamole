@@ -1,13 +1,19 @@
+// Copyright (c) HashiCorp, Inc.
+// SPDX-License-Identifier: MPL-2.0
+
 package tfexec
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"os"
+	"runtime"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/go-version"
 )
@@ -32,14 +38,14 @@ type printfer interface {
 // but it ignores certain environment variables that are managed within the code and prohibits
 // setting them through SetEnv:
 //
-//  - TF_APPEND_USER_AGENT
-//  - TF_IN_AUTOMATION
-//  - TF_INPUT
-//  - TF_LOG
-//  - TF_LOG_PATH
-//  - TF_REATTACH_PROVIDERS
-//  - TF_DISABLE_PLUGIN_TLS
-//  - TF_SKIP_PROVIDER_VERIFY
+//   - TF_APPEND_USER_AGENT
+//   - TF_IN_AUTOMATION
+//   - TF_INPUT
+//   - TF_LOG
+//   - TF_LOG_PATH
+//   - TF_REATTACH_PROVIDERS
+//   - TF_DISABLE_PLUGIN_TLS
+//   - TF_SKIP_PROVIDER_VERIFY
 type Terraform struct {
 	execPath           string
 	workingDir         string
@@ -63,6 +69,9 @@ type Terraform struct {
 
 	// TF_LOG_PROVIDER environment variable
 	logProvider string
+
+	// waitDelay represents the WaitDelay field of the [exec.Cmd] of Terraform
+	waitDelay time.Duration
 
 	versionLock  sync.Mutex
 	execVersion  *version.Version
@@ -92,6 +101,7 @@ func NewTerraform(workingDir string, execPath string) (*Terraform, error) {
 		workingDir: workingDir,
 		env:        nil, // explicit nil means copy os.Environ
 		logger:     log.New(ioutil.Discard, "", 0),
+		waitDelay:  60 * time.Second,
 	}
 
 	return &tf, nil
@@ -210,6 +220,15 @@ func (tf *Terraform) SetSkipProviderVerify(skip bool) error {
 		return err
 	}
 	tf.skipProviderVerify = skip
+	return nil
+}
+
+// SetWaitDelay sets the WaitDelay of running Terraform process as [exec.Cmd]
+func (tf *Terraform) SetWaitDelay(delay time.Duration) error {
+	if runtime.GOOS == "windows" {
+		return errors.New("cannot set WaitDelay, graceful cancellation not supported on windows")
+	}
+	tf.waitDelay = delay
 	return nil
 }
 
